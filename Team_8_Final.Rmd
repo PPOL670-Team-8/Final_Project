@@ -1,28 +1,126 @@
 ---
-title: "Final_Team_8"
+title: "Final_Project_Team_8"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+---
+title: "Final project"
+output: html_notebook
+---
+
+```{r}
+#API creation for BLS data
+#Documentation: https://cran.r-project.org/web/packages/blsAPI/blsAPI.pdf
+install.packages("blsAPI")
+require(blsAPI)
+
+#API creation for Zillow data
+#Documentation: https://cran.r-project.org/web/packages/ZillowR/index.html
+Zillow_API_id <- "X1-ZWz1gyokvh7bwr_76gmj"
+QUANDL_API_Key <- "-bRinioufDrUsB-JsCzs"
+install.packages("ZillowR")
+require(ZillowR)
+
+#API creation for census data
+#Documentation: https://cran.r-project.org/web/packages/censusapi/censusapi.pdf
+
+install.packages("censusapi")
+require(censusapi)
+require(rjson)
+require(tidyverse)
+
 ```
 
-## R Markdown
+```{r}
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
 ```
 
-## Including Plots
+```{r}
+#Set Zillow Web service if for API calls
+my_zillow_id <- 'X1-ZWz1gyokvh7bwr_76gmj'
+library(blsAPI)
+library(rjson)
+library(censusapi)
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+require("rjson")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+response <- blsAPI('CUUR0000SA0L1E')
+json <- fromJSON(response)
+json
+
+```
+
+
+
+```{r}
+#get Zillow data on individual properties
+
+zillow_path = "http://www.zillow.com/webservice/GetDeepSearchResults.htm?zws-id="
+zip_list = "27510"
+Zillow_Address_List = "111 Old Pittsboro Rd"
+
+GetDeepSearchResults(address = Zillow_Address_List, citystatezip = "Carrboro, NC", rentzestimate = FALSE, zws_id = my_zillow_id, url = "http://www.zillow.com/webservice/GetDeepSearchResults.htm")
+
+```
+
+```{r}
+require(tidyverse)
+require(rvest)
+require(xml2)
+require(XML)
+```
+
+
+```{r}
+bls_scraper <- function(url){
+  
+  raw_table = read_html(url)
+  
+  table_stats = raw_table %>%
+    html_nodes(., xpath = "//*[@id='lau_feb_metro_m1]") %>%
+    html_table(.)
+  
+  #headers  = raw_table %>%
+  #  html_nodes(., xpath = "//*[@id= 'lau_feb_metro_m1']/thead") %>%
+  #  html_text(.)
+  
+  table <- tibble(table_stats)
+  return(table)
+}
+```
+
+
+```{r}
+bls_scraper('https://www.bls.gov/news.release/metro.t01.htm')
+```
+
+```{r}
+
+  metro_codes <- read_html("http://static.quandl.com/zillow/metro_codes.csv") 
+
+    metro_codes %>%
+      html_nodes(., xpath = "/html/body/pre") %>%
+      html_table(.)
+    
+metro_codes
+    
+```
+
+```{r}
+
+
+
+tst <- read_csv("http://static.quandl.com/zillow/metro_codes.csv")
+tst <- read.table(file = "http://static.quandl.com/zillow/metro_codes.csv",header = F,sep = "|")
+
+```
+```{r}
+test <- read_csv("http://static.quandl.com/zillow/metro_codes.csv", col_names = c("Region", "Code"), sep="|")
+
+test
+```
+
+
+
