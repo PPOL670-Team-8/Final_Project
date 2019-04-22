@@ -1,0 +1,300 @@
+---
+title: "data-organization"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,include=FALSE}
+require(tidyverse)
+```
+
+```{r}
+#import all the population datasets
+for (number in c(2005:2017)) {
+  file <- paste(paste("Raw-Data/population/pop",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("pop",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the population datasets
+population <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2005:2017)) {
+  pop <- paste("pop",number,sep="_",collapse=NULL)
+  population <- get(pop) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,population=HD01_VD01) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,population)
+}
+```
+
+```{r}
+#import all the unemployment rate datasets
+for (number in c(2005:2017)) {
+  file <- paste(paste("Raw-Data/unemployment/unemp",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("unemp",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the unemployment rate datasets
+unemployment <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2005:2017)) {
+  unemp <- paste("unemp",number,sep="_",collapse=NULL)
+  unemployment <- get(unemp) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,UnemploymentRate=HC04_EST_VC01) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,unemployment)
+}
+```
+
+
+```{r}
+#import all the median income datasets
+for (number in c(2005:2017)) {
+  file <- paste(paste("Raw-Data/income/inc",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("inc",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the median income datasets
+income <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2005:2017)) {
+  inc <- paste("inc",number,sep="_",collapse=NULL)
+  income <- get(inc) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,MedianIncome=HC02_EST_VC02) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,income)
+}
+```
+
+```{r}
+#import all the travel time to work datasets
+for (number in c(2005:2017)) {
+  file <- paste(paste("Raw-Data/travel_time_to_work/tran",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("tran",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the travel time to work datasets
+transportation <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2005:2017)) {
+  tran <- paste("tran",number,sep="_",collapse=NULL)
+  
+  if (number ==2005) {
+    transportation <- get(tran) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,TravelTime=HC01_EST_VC122) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,transportation)
+  }
+  if (number %in% c(2006:2009)) {
+    transportation <- get(tran) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,TravelTime=HC01_EST_VC104) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,transportation)
+  }
+  if (number %in% c(2010:2012)) {
+    transportation <- get(tran) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,TravelTime=HC01_EST_VC120) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,transportation)
+  }
+  if (number %in% c(2013:2017)) {
+    transportation <- get(tran) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,TravelTime=HC01_EST_VC118) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,transportation)
+  }
+}
+```
+
+```{r}
+#import all the poverty rate datasets
+for (number in c(2005:2017)) {
+  file <- paste(paste("Raw-Data/poverty/poverty",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("poverty",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the poverty rate datasets
+poverty <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2005:2017)) {
+  pov <- paste("poverty",number,sep="_",collapse=NULL)
+  poverty <- get(pov) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,PovertyRate=HC03_EST_VC01) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,poverty)
+}
+```
+
+```{r}
+#import all the housing costs without mortgage datasets
+for (number in c(2005:2017)) {
+  file <- paste(paste("Raw-Data/housing_costs_no_mortgage/costs",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("costs",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the housing costs without mortgage datasets
+costs <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2005:2017)) {
+  cost <- paste("costs",number,sep="_",collapse=NULL)
+  
+  if (number %in% c(2010:2014)) {
+    costs <- get(cost) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,HousingCosts=HC01_EST_VC42) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,costs)
+  } else {
+    costs <- get(cost) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,HousingCosts=HC01_EST_VC39) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,costs)
+  }
+}
+```
+
+```{r}
+#import all the housing costs with mortgage datasets
+for (number in c(2005:2017)) {
+  file <- paste(paste("Raw-Data/housing_costs_mortgage/mortgage",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("mortgage",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the housing costs with mortgage datasets
+mortgage <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2005:2017)) {
+  mort <- paste("mortgage",number,sep="_",collapse=NULL)
+  
+  if (number <=2009) {
+    mortgage <- get(mort) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,MortgageCosts=HC01_EST_VC47) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,mortgage)
+  }
+  if (number %in% c(2010:2014)) {
+    mortgage <- get(mort) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,MortgageCosts=HC01_EST_VC51) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,mortgage)
+  }
+  if (number >=2015) {
+    mortgage <- get(mort) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,MortgageCosts=HC01_EST_VC48) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,mortgage)
+  }
+}
+```
+
+```{r}
+#import all the fertility datasets
+for (number in c(2005:2017)) {
+  file <- paste(paste("Raw-Data/fertility/fertility",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("fertility",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the poverty rate datasets
+fertility <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2005:2017)) {
+  fer <- paste("fertility",number,sep="_",collapse=NULL)
+  fertility <- get(fer) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,Fertility=HC04_EST_VC01) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,fertility)
+}
+```
+
+```{r}
+#import all the bachelor rate datasets
+for (number in c(2005:2017)) {
+  file <- paste(paste("Raw-Data/education_attainment/bachelor",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("bachelor",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the bachelor rate datasets
+bachelor <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2005:2017)) {
+  bac <- paste("bachelor",number,sep="_",collapse=NULL)
+  
+  if (number ==2005) {
+    bachelor <- get(bac) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,BachelorRate=HC02_EST_VC19) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,bachelor)
+  }
+  if (number %in% c(2006:2009)) {
+    bachelor <- get(bac) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,BachelorRate=HC02_EST_VC12) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,bachelor)
+  }
+  if (number %in% c(2010:2014)) {
+    bachelor <- get(bac) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,BachelorRate=HC02_EST_VC13) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,bachelor)
+  }
+  if (number >= 2015) {
+    bachelor <- get(bac) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,BachelorRate=HC02_EST_VC14) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,bachelor)
+  }
+}
+```
+
+```{r}
+#joint all the datasets
+data <-
+population %>%
+  inner_join(., unemployment, by=c("ID","Year","County")) %>%
+  inner_join(.,income, by=c("ID","Year","County")) %>%
+  inner_join(.,transportation, by=c("ID","Year","County")) %>%
+  inner_join(.,poverty, by=c("ID","Year","County")) %>%
+  inner_join(.,costs, by=c("ID","Year","County")) %>%
+  inner_join(.,mortgage, by=c("ID","Year","County")) %>%
+  inner_join(.,fertility, by=c("ID","Year","County")) %>%
+  inner_join(.,bachelor, by=c("ID","Year","County"))
+```
+
