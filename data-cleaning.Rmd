@@ -1,6 +1,7 @@
 ---
-title: "data-organization"
+title: "data_cleaning"
 output: pdf_document
+author: Team NO.8
 ---
 
 ```{r setup, include=FALSE}
@@ -28,9 +29,32 @@ population <- tibble()
 for (number in c(2005:2017)) {
   pop <- paste("pop",number,sep="_",collapse=NULL)
   population <- get(pop) %>%
-    select(.,ID=GEO.id2, County=GEO.display.label,population=HD01_VD01) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,Population=HD01_VD01) %>%
     mutate(.,Year=number) %>%
     bind_rows(.,population)
+}
+```
+
+```{r}
+#import all the Gini coefficients datasets
+for (number in c(2006:2017)) {
+  file <- paste(paste("Raw-Data/Gini/Gini",number,sep="-",collapse=NULL),"csv",sep=".",collapse = NULL)
+  filename <- paste("Gini",number,sep="_",collapse=NULL)
+  assign(filename,read.csv(file))
+}
+```
+
+```{r}
+#create a empty dataset to store all the population datasets
+gini <- tibble()
+
+#keep the columns I need; rename them; add a year indicator for each dataset; append all the datasets
+for (number in c(2006:2017)) {
+  GC <- paste("Gini",number,sep="_",collapse=NULL)
+  gini <- get(GC) %>%
+    select(.,ID=GEO.id2, County=GEO.display.label,Gini=HD01_VD01) %>%
+    mutate(.,Year=number) %>%
+    bind_rows(.,gini)
 }
 ```
 
@@ -285,16 +309,54 @@ for (number in c(2005:2017)) {
 ```
 
 ```{r}
-#joint all the datasets
+#join all the datasets
 data <-
 population %>%
+  #inner_join(.,gini,by=c("ID","Year","County")) %>%
   inner_join(., unemployment, by=c("ID","Year","County")) %>%
   inner_join(.,income, by=c("ID","Year","County")) %>%
-  inner_join(.,transportation, by=c("ID","Year","County")) %>%
+  #inner_join(.,transportation, by=c("ID","Year","County")) %>%
   inner_join(.,poverty, by=c("ID","Year","County")) %>%
   inner_join(.,costs, by=c("ID","Year","County")) %>%
   inner_join(.,mortgage, by=c("ID","Year","County")) %>%
   inner_join(.,fertility, by=c("ID","Year","County")) %>%
-  inner_join(.,bachelor, by=c("ID","Year","County"))
+  inner_join(.,bachelor, by=c("ID","Year","County")) %>%
+  arrange(.,Year)
 ```
 
+```{r}
+#add variables to record the change by year
+data2 <-
+data %>%
+  group_by(ID,County) %>%
+  mutate(.,PreviousPopulation=lag(Population, n=1, order_by = Year),
+         PopulationGrowth=(Population-PreviousPopulation)/PreviousPopulation,
+         PreviousUnemploymentRate=lag(UnemploymentRate,n=1,order_by = Year),
+         UnemploymentChange=(UnemploymentRate-PreviousUnemploymentRate)/PreviousUnemploymentRate,
+         PreviousIncome=lag(MedianIncome,n=1,order_by=Year),
+         MedianIncomeChange=(MedianIncome-PreviousIncome)/PreviousIncome,
+         PreviousPoverty=lag(PovertyRate,n=1,order_by=Year),
+         PovertyRateChange=(PovertyRate-PreviousPoverty)/PreviousPoverty,
+         PreviousHousingCosts=lag(HousingCosts,n=1,order_by=Year),
+         HousingCostsChange=(HousingCosts-PreviousHousingCosts)/PreviousHousingCosts,
+         PreviousMortgageCosts=lag(MortgageCosts,n=1,order_by=Year),
+         MortgageCostsChange=(MortgageCosts-PreviousMortgageCosts)/PreviousMortgageCosts,
+         PreviousFertility=lag(Fertility,n=1,order_by=Year),
+         FertilityChange=(Fertility-PreviousFertility)/PreviousFertility,
+         PreviousBachelor=lag(BachelorRate,n=1,order_by=Year),
+         BachelorRateChange=(BachelorRate-PreviousBachelor)/PreviousBachelor,
+         ) %>%
+  ungroup %>%
+  select(-PreviousBachelor,-PreviousFertility,-PreviousIncome,-PreviousHousingCosts,-PreviousPoverty,-PreviousMortgageCosts,-PreviousPopulation,-PreviousUnemploymentRate) %>%
+  filter(.,!Year==2005) %>%
+  arrange(.,Year)
+```
+
+```{r}
+data3 <- data2 %>%
+  inner_join(.,gini,by=c("ID","Year","County"))
+```
+
+```{r}
+write_csv(data3,path ="project_data.csv")
+```

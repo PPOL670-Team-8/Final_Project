@@ -1,0 +1,450 @@
+---
+title: "Predicting the Success of American Counties"
+authors: Ruilian Xie and Nicholas Lourme
+header-includes:
+- \usepackage{placeins}
+- \usepackage{setspace}\doublespacing
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+urlcolor: black
+linkcolor: black
+fontsize: 12pt
+date: April 28th, 2019
+---
+# Project Overview
+Our project seeks to predict the next successful American urban area. From the many variables that describe the quality of American life, we are seeking to identify those that are most predictive of success. In an era of rapid change characterized by automation, gentrification and the stagnation of wages and productivity, our research can help policymakers better distinguish important contributors to success from weaker ones.
+Our project can be considered a success if one of two criteria is met: either our model predict with greater than 50% accuracy whether a county will meet our definition of success, or we discover that a vraible is an unexpectedly large contributor to our definition of success. If the first criteria is met, then we will have created a model that can be useful for understanding how a county can grow in an equitable way. If the second criteria is met, we will have a further basis for studying how that particular variable contributes to the equitable growth of a county.
+The key to our research question is creating a narrow definition of “success”. A cursory search of the literature reveals practically as many definitions of a successful city as there are cities. Some colloquially “successful” cities are characterized by low unemployment; others by high median wages or a strong concentrations of technology jobs. Still others are notable for their diversity and culture, for anchoring a large company, or even just for their nice weather. The point is that the most notable feature of a city, the feature that marks its as successful, changes depending on the city. Our project seeks to identify the factors common to each successful city in order to help policy planners better prioritize policy initiatives.
+
+# Methods and Tools
+## Methods and Assumptions:
+We set up our project by pulling in variables from the United States census bureau. Those variables were:
+- Unemployment Rate
+- Median Income
+- Poverty Rate
+- Housing Costs
+- Mortgage Costs
+- Bachelor Rate
+- Population
+- Fertility
+We then computed the year-over-year change for each of those variables to create a new variable, the year-over-year percentage change for each measure. We had initially hoped to subset our dataset by metro area, but this reduced the number of datapoints available to us. We instead opted to divide our  dataset by US county. We had also hoped to include average commute time, but this variable was heavily skewed by whether large metro areas lay within a single county or were divided into several.  For example, the city of San Francisco, CA lies entirely within San Francisco county, while the city of Atlanta, GA is divided among four different counties. We thus ended up dropping the commute time variable. We ended up with a dataset that included 16 predictor variables for every US county and covered the years 2006 to 2017.
+We accounted for misisng values in the dataset by imputing the average for each county according to the Year and State. In other words, if Calhoun County, Alabama was missing a value in 2006 for fertility, we imputed the mean fertility for Alabama in 2006 for the missing value.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+```{r,include=F,echo = FALSE,results="hide"}
+knitr::opts_chunk$set(warning=F,error = F,message = F)
+require(tidyverse)
+require(caret)
+require(recipes)
+require(pdp)
+require(ranger)
+require(skimr)
+```
+```{r, echo = FALSE,include=FALSE}
+
+#This dataset was compiled from the data cleaned in the companion .rmd file.
+fulldata <- read_csv("project_data.csv")
+```
+```{r, echo = FALSE}
+#get rid off the observations that have missing value on "PopulationGrowth"
+cleandata <- fulldata %>%
+  filter(.,!is.na(PopulationGrowth))
+```
+We defined a successful urban area as a place that combines population growth with a low gini coefficient. The gini coefficient is a measure of income inequality that ranges from 0 (most equal i.e. everyone has the same income) to 1 (least equal i.e. 1 person controls all the income). We focus on those two variables as markers of a successful area because we believe they capture the most important attributes of an urban area within the fewest variables. This also allows us to use other variables that could have been part of marking a successful city, such as median wage growth, crime rates etc. as predictors rather than outcomes. Sustained population growth is a proxy for, among other factors, the desirability of a particular city. Simply put, we assume that people tend to move to more desirable areas. We use the gini coefficient as a way to capture some of the negative factors behind a growing population. For instance, gentrification of an area is marked by both an increase in population and an increase in the gini coefficient; screening out high gini values helps control for this. Another example is the sudden increase in population resulting from displacement due to natural disaster. The gini coefficient should also increase as the displaced have a lower income than those who previously lived in the area. The relationship between the gini coefficient  and median income is shown below, where the majority of median income data points lie between .4 and .5 on the gini index.
+```{r, echo=FALSE, fig.width=5, fig.height=3,fig.align="center"}
+#normalize the populationgrowth and gini index and then weight them to get the "Success" variable
+cleandata <- cleandata %>%
+  mutate(., norm_populationgrowth=scale(PopulationGrowth), norm_gini=scale(1/Gini)) %>%
+  mutate(.,Success=0.5*norm_populationgrowth+0.5*norm_gini) %>%
+  mutate(.,Success=as.numeric(Success)) %>%
+  select(.,-norm_populationgrowth,-norm_gini)
+
+#illustrate the relationship between gini coefficient and median income for the purpose of the text
+cleandata %>% tidyr::gather("id", "value", 6) %>% 
+  ggplot(., aes(Gini, value))+
+  geom_point()+
+  geom_smooth(method = "lm", se=FALSE, color="black")+
+  facet_wrap(~id)
+
+```
+## Tools:
+Our principal approach to this problem was to apply three different predictive models and see
+which of those yielded the most precise estimate. Once the basic preprocessing had been completed, we 
+partitioned our data, with 70% of the data used for training and 30% for testing. We then normalized
+our data to prepare it for the classification techniques. Below are plots of the data pre- and post- 
+normalization.
+```{r, echo = FALSE,include=FALSE}
+require(skimr)
+#skimr::skim(cleandata)
+```
+```{r, echo=FALSE,include=FALSE}
+#split training set and testing set
+set.seed(1998)
+
+index = createDataPartition(cleandata$Success,p=.7,list=F) 
+last_year_data = cleandata[which(cleandata$Year == 2017),]
+train_data = cleandata[index,] # Use 70% of the data as training data 
+test_data = cleandata[-index,] # holdout 30% as test data
+
+dim(train_data)
+```
+```{r, include=FALSE}
+require(skimr)
+#skimr::skim(train_data)
+```
+```{r, echo = FALSE, fig.width=8, fig.height=6}
+train_data %>% 
+  select_if(is.numeric) %>% 
+  gather(var,val) %>% 
+  ggplot(aes(val)) +
+  geom_histogram(bins=75) +
+  facet_wrap(~var,scales="free",ncol=4)
+```
+```{r, echo=FALSE,include=FALSE}
+#take a closer look at the distribution
+train_data %>%
+  ggplot(aes(MedianIncomeChange)) +
+  geom_histogram()
+```
+We note that the variables "BachelorRate", "Fertility", "FertilityChange", "HousingCosts", "MedianIncome", "MedianIncomeChange", "MortgageCosts", "Population", "PovertyRate", "PovertyRateChange", "UnemploymentRate" and "UnemploymentRateChange" are skewed. To deal with the skew, we will take the log of each.
+```{r, echo= FALSE, fig.width=8, fig.height=6,fig.align="center"}
+#The variables "BachelorRate", "Fertility", "FertilityChange",
+#"HousingCosts", "MedianIncome", "MedianIncomeChange", "MortgageCosts", "Population", "PovertyRate", #"PovertyRateChange", "UnemploymentRate", and "UnemploymentChange" are skewed.
+#deal with the skew
+convert_skewed <- . %>% mutate(BachelorRate=log(BachelorRate+1),
+                               Fertility=log(Fertility+1),
+                               FertilityChange=log(FertilityChange+1),
+                               HousingCosts = log(HousingCosts+1),
+                               MedianIncome=log(MedianIncome+1),
+                               MedianIncomeChange=log(MedianIncomeChange+1),
+                               MortgageCosts=log(MortgageCosts+1),
+                               Population=log(Population+1),
+                               PovertyRate=log(PovertyRate+1),
+                               PovertyRateChange=log(PovertyRateChange+1),
+                               UnemploymentRate=log(UnemploymentRate+1),
+                               UnemploymentChange=log(UnemploymentChange+1))
+
+# Apply to both the training and test data
+train_data2 <- train_data %>%  convert_skewed()
+test_data2 <- test_data %>%  convert_skewed()
+last_year_data <- last_year_data %>% convert_skewed()
+```
+```{r,echo=FALSE,include=FALSE}
+# Visualize the transformation
+train_data2 %>% 
+  select(BachelorRate, Fertility,FertilityChange, HousingCosts, MedianIncome, MedianIncomeChange,MortgageCosts,Population,PovertyRate,PovertyRateChange,UnemploymentRate,UnemploymentChange) %>%
+  gather(var,val) %>% 
+  ggplot(aes(val)) +
+  geom_histogram() +
+  facet_wrap(~var,scales="free", ncol=4)
+```
+```{r, echo= FALSE}
+
+#impute missing values by State and Year
+#first create a "State" variable
+add_state <- function(dataset){
+  new_data <- dataset %>%
+    mutate(.,State=str_extract(County,pattern=",+\\s+\\w+")) %>%
+    mutate(.,State=str_extract(State,pattern="\\w+"))
+  
+  return(new_data)
+}
+
+train_data3 <- add_state(train_data2)
+test_data3 <- add_state(test_data2)
+last_year_data2 <- add_state(last_year_data)
+```
+```{r,echo=FALSE}
+#create a new dataset to record the averages for variables that have missing value
+calculate_mean <- function(dataset){
+  ave <- dataset %>%
+    group_by(State,Year) %>%
+    drop_na() %>%
+    summarise(.,Ave_Fertility=mean(Fertility),Ave_FertilityChange=mean(FertilityChange),Ave_HousingCosts=mean(HousingCosts),Ave_HousingCostsChange=mean(HousingCostsChange),Ave_UnemploymentRate=mean(UnemploymentRate),Ave_UnemploymentChange=mean(UnemploymentChange)) %>%
+    ungroup()
+  
+  return(ave)
+}
+
+train_ave <- calculate_mean(train_data3)
+test_ave <- calculate_mean(test_data3)
+last_yd_ave <- calculate_mean(last_year_data2)
+```
+```{r,echo=FALSE,results="hide"}
+#now replace the missing value with the average
+train_data4<- train_data3 %>%
+  full_join(.,train_ave,by=c("State","Year")) %>%
+  mutate(.,Fertility=ifelse(is.na(Fertility),Ave_Fertility,Fertility),
+         FertilityChange=ifelse(is.na(FertilityChange),Ave_FertilityChange,FertilityChange),
+         HousingCosts=ifelse(is.na(HousingCosts),Ave_HousingCosts,HousingCosts),
+         HousingCostsChange=ifelse(is.na(HousingCostsChange),Ave_HousingCostsChange,HousingCostsChange),
+         UnemploymentRate=ifelse(is.na(UnemploymentRate),Ave_UnemploymentRate,UnemploymentRate),
+         UnemploymentChange=ifelse(is.na(UnemploymentChange),Ave_UnemploymentChange,UnemploymentChange)) %>%
+  select(.,-Ave_Fertility,-Ave_FertilityChange,-Ave_HousingCosts,-Ave_HousingCostsChange,-Ave_UnemploymentRate,-Ave_UnemploymentChange)
+```
+```{r,include=FALSE}
+#replace missing value with the average in test data
+test_data4<- test_data3 %>%
+  full_join(.,test_ave,by=c("State","Year")) %>%
+  mutate(.,Fertility=ifelse(is.na(Fertility),Ave_Fertility,Fertility),
+         FertilityChange=ifelse(is.na(FertilityChange),Ave_FertilityChange,FertilityChange),
+         HousingCosts=ifelse(is.na(HousingCosts),Ave_HousingCosts,HousingCosts),
+         HousingCostsChange=ifelse(is.na(HousingCostsChange),Ave_HousingCostsChange,HousingCostsChange),
+         UnemploymentRate=ifelse(is.na(UnemploymentRate),Ave_UnemploymentRate,UnemploymentRate),
+         UnemploymentChange=ifelse(is.na(UnemploymentChange),Ave_UnemploymentChange,UnemploymentChange)) %>%
+  select(.,-Ave_Fertility,-Ave_FertilityChange,-Ave_HousingCosts,-Ave_HousingCostsChange,-Ave_UnemploymentRate,-Ave_UnemploymentChange)
+```
+
+```{r}
+last_year_data3<- last_year_data2 %>%
+  full_join(.,last_yd_ave,by=c("State","Year")) %>%
+  mutate(.,Fertility=ifelse(is.na(Fertility),Ave_Fertility,Fertility),
+         FertilityChange=ifelse(is.na(FertilityChange),Ave_FertilityChange,FertilityChange),
+         HousingCosts=ifelse(is.na(HousingCosts),Ave_HousingCosts,HousingCosts),
+         HousingCostsChange=ifelse(is.na(HousingCostsChange),Ave_HousingCostsChange,HousingCostsChange),
+         UnemploymentRate=ifelse(is.na(UnemploymentRate),Ave_UnemploymentRate,UnemploymentRate),
+         UnemploymentChange=ifelse(is.na(UnemploymentChange),Ave_UnemploymentChange,UnemploymentChange)) %>%
+  select(.,-Ave_Fertility,-Ave_FertilityChange,-Ave_HousingCosts,-Ave_HousingCostsChange,-Ave_UnemploymentRate,-Ave_UnemploymentChange)
+```
+
+```{r, include=FALSE}
+#normalize the variables and dealing with missing values
+rcp <- 
+  recipe(Success~UnemploymentRate+MedianIncome+PovertyRate+HousingCosts+MortgageCosts+Fertility+BachelorRate+UnemploymentChange+MedianIncomeChange+PovertyRateChange+HousingCostsChange+MortgageCostsChange+FertilityChange+BachelorRateChange,train_data4) %>%
+  step_range(UnemploymentRate,MedianIncome,PovertyRate,HousingCosts,MortgageCosts,Fertility,BachelorRate,UnemploymentChange,MedianIncomeChange,PovertyRateChange, HousingCostsChange, MortgageCostsChange, FertilityChange, BachelorRateChange) %>% #Normalize scale
+  step_meanimpute(Fertility, FertilityChange, HousingCosts, HousingCostsChange, MortgageCosts, MortgageCostsChange, BachelorRateChange,UnemploymentChange, UnemploymentRate) %>% #missing value imputation
+  prep()
+
+# Apply the recipe to the training and test data
+train_data5 <- bake(rcp,train_data4)
+test_data5 <- bake(rcp,test_data4) 
+last_year_data4 <- bake(rcp,last_year_data3)
+
+#take a look at the data
+head(train_data5)
+head(last_year_data4)
+```
+The three predictive models we chose to use were linear regression, regression tree and random forest. We partitioned the training data into 5 folds and ran each of the three models on the data. The packages we used for preprocessing the data included recipes and tidyverse, which were required to manipulate the data into a format that could be fed into the selected ML algorithms. We used the caret wrapper and ranger packages for the selected algorithms we chose to run. We chose those three models because this problem strove primarily to identify the main causes of a successful county. The random forest model was most useful for showing the individual variables best correlated with success, while the regression tree and linear regression models gave us a sense of how well all of our variables jointly and individually correlated with success.
+```{r,echo=FALSE,include=FALSE}
+
+#Now we begin to develop some models.
+set.seed(1998) # set a seed for replication purposes 
+
+folds <- createFolds(train_data5$Success, k = 5) # Partition the data into 5 equal folds
+
+sapply(folds,length)
+```
+```{r,echo=FALSE}
+control_conditions <- 
+  trainControl(method='cv', # K-fold cross validation
+               index = folds # The indices for our folds (so they are always the same)
+  )
+```
+```{r,echo=FALSE}
+
+#Linear regression model
+lmFit <- train(Success ~ .,
+               data = train_data5,
+               method = "lm")
+```
+# Results
+The results of our three models are below. For the linear regression, we can see that the model itself is significant (p<.05) and that it explains ~ 31.8% of the deviation. However, two variables, Unemployment Rate and Median Income, along with their respective lagged variables (Unemployment Rate Change and Median Income Change) are not significant (P >.05). This is unfortunate as we believed at the outset that those variables would have a strong relationship with our success variable.
+```{r,echo = FALSE,include=FALSE}
+summary(lmFit)
+```
+The next model we ran was the regression tree model. We ran it on a tuning grid ranging from .001 to .1. The metric we used to evaluate the model was the Root Mean-Squared Error (RMSE). Unsurprisingly, the deepest tree was the most precise. However, even at that depth the model only yielded an adjusted R-squared of ~20%, which was less than the linear regression model.
+```{r,echo=FALSE}
+#regression tree model
+tune_cart <- expand.grid(cp = c(0.001,0.01,0.02,0.04,0.06,0.1)) #the smaller the number, the deeper the tree
+
+mod_cart <-
+  train(Success ~ ., # Equation (outcome and everything else)
+        data=train_data5, # Training data 
+        method = "rpart", # Classification Tree
+        metric = "RMSE", # area under the curve
+        #tuneLength=9,
+        tuneGrid = tune_cart, # Tuning parameters
+        trControl = control_conditions
+  )
+```
+```{r,echo=FALSE, results="hide"}
+mod_cart
+```
+```{r,echo=FALSE, fig.width=6, fig.height=4,fig.align="center"}
+plot(mod_cart)
+```
+The third model we ran was the random forest model. This is computationally the most expensive model, but we expected it to return the most accurate predictor or success. As with the regression tree, we ran the model with RMSE as the accuracy metric.
+```{r,echo=FALSE, fig.width=6, fig.height=4,fig.align="center"}
+#random forest model
+tune_rf <- expand.grid(mtry = c(1,2,5,8,10,14), splitrule=c("variance","extratrees"), min.node.size=1) 
+
+mod_rf <-
+  train(Success ~ ., # Equation (outcome and everything else)
+        data=train_data5, # Training data 
+        method = "ranger", # random forest (ranger is much faster than rf)
+        metric = "RMSE", # area under the curve
+        tuneGrid = tune_rf, # Tuning parameters
+        importance = 'impurity', # For variable importance metric (see below)
+        trControl = control_conditions
+  )
+```
+The most accurate set of tuning parameters were a 10-fold mtry, a splitrule = extratrees and a minimum node size  = 1. Colloquially, this means that 10 variables were randomly sampled at each split, which themselves were classified as extratrees (usually the case for a regression problem). This yielded a RMSE of .611 and an adjusted R-squared of ~33.78%, which was more accurate than either the linear regression or regression tree models.
+```{r,echo=FALSE,include=FALSE}
+mod_rf
+```
+```{r,echo=FALSE, fig.width=6, fig.height=4,fig.align="center"}
+plot(mod_rf)
+```
+```{r,echo=FALSE,include=FALSE}
+#Compare models.
+mod_list <-
+  list(
+    cart = mod_cart,
+    rf = mod_rf
+  )
+
+resamples(mod_list)
+```
+When we plot the Random Forest vs. the Regression Tree models against each other, we can see that the RMSE is better for the Random Forest model, and that the Random Forest explains more of the deviation. Thus, we will use the Random Forest model as the one to explore the various variable importance weights.
+```{r,echo=FALSE, fig.width=6, fig.height=4,fig.align="center"}
+dotplot(resamples(mod_list))
+```
+```{r,echo=FALSE,include=FALSE}
+#test out-of-sample predictive performance with RMSE
+require(e1071)
+pred <- predict(mod_rf,newdata = test_data5)
+RMSE(pred, test_data5$Success)
+```
+```{r,echo=FALSE,include=FALSE}
+pred_last <- predict(mod_rf, newdata = last_year_data4)
+last_year_data5 <- last_year_data4 %>%
+  mutate(.,Pred_Success=pred_last) %>%
+  bind_cols(.,select(last_year_data3, ID,County,State))
+```
+
+Below are the weights for the variable importance to the success of the models. We can see that the Poverty Rate has by far the most impact on the success of a county, followed by the general cost of housing, whether as an aggregate or measured by the cost of a mortgage. Somewhat surprisingly, incomes and unemployment have less of an effect. It is also noteworthy that the rate of change of poverty also has little effect on the success of a variable. This suggests that the absolute poverty level, rather than change in poverty, has the largest effect on success.
+```{r,echo=FALSE, fig.width=6, fig.height=4,fig.align="center"}
+#variable importance
+plot(varImp(mod_rf))
+```
+Here we plot the partial predictive plots for the variables with the greatest effect on success. As can be seen, each of those has an effect on our success variable. However, the effect of the poverty rate is noteworthy, as it feels counterintuitive that it has a greater effect than some of the other variables. 
+```{r,echo=FALSE, fig.width=4, fig.height=2, fig.align="center"}
+partial(mod_rf,pred.var = "HousingCosts",plot = T)
+partial(mod_rf,pred.var = "PovertyRate",plot = T)
+partial(mod_rf,pred.var = "HousingCostsChange",plot = T)
+partial(mod_rf,pred.var = "MortgageCosts",plot = T)
+```
+As those plots demonstrate, low levels of the respective measures are highly predictive of high success scores. We can guess that the reason our definition of success is so well correlated to low housing costs, mortgage costs and poverty rates is because there tend to be far more poor people than wealthier people. A high poverty rate translates to a far higher number of people having very little wealth, more so than a low poverty rate translates to more people having high wealth. In this sense, our analysis is useful as it provides a general guideline for policymakers looking to make an area more successful: reduce the poverty rate, or in other terms, focus on allocating resources to the poor as opposed to providing resources (such as tax cuts, certain infrastructure investments etc.) to those who already have wealth above the median. 
+Graphically, we can show the results of our analysis by showing actual and predicted values of "successful" counties for 2017. This demonstrates that, while our model only explains ~33% of the actual deviation, it does capture much of the regional concentrations of weath in the United States. It does mean that our analysis failed to meet our first criteria for success, i.e. that we are able to predict with greater than 50% accuracy whether a county is "successful" or not. However, the finding that the poverty rate plays such a strong role in determining the equitable development of a county is a potentially useful insight for policymakers, or for further research.
+
+# Appendix 1 Linear Model Results {-}
+```{r}
+summary(lmFit)
+```
+
+# Appendix 2 Regression Tree Results {-}
+```{r, echo=FALSE}
+mod_cart
+```
+
+# Appendix 3 Random Forest Results {-}
+```{r, echo=FALSE}
+mod_rf
+```
+
+# Appendix 4 Comparison between Reality and Prediction {-}
+
+```{r, echo=FALSE}
+library(urbnmapr)
+countydata <- urbnmapr::counties
+```
+
+```{r, echo=FALSE}
+visual_data <- last_year_data5 %>%
+  mutate(.,county_name=str_remove(County,pattern=",+\\s+\\w+")) %>%
+  select(.,state_name=State, county_name, Success,Pred_Success) %>%
+  full_join(.,countydata)
+```
+
+```{r, echo=FALSE,fig.align="center"}
+Massachusetts_comparison <- grid.arrange(
+visual_data %>%
+  filter(.,state_name=="Massachusetts") %>%
+  ggplot(.) + 
+  geom_polygon(mapping = aes(x = long, y = lat, group = group, fill=Success)) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45)+
+  scale_fill_continuous(name="Success",
+                        #low="steelblue",
+                        #high="darkred",
+                        breaks=seq(min(visual_data$Success,na.rm = TRUE), max(visual_data$Success,na.rm = TRUE)))+
+  theme_minimal()+
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank())+
+  labs(title="Real Success in Massachusetts"),
+
+visual_data %>%
+  filter(.,state_name=="Massachusetts") %>%
+  ggplot(.) + 
+  geom_polygon(mapping = aes(x = long, y = lat, group = group, fill=Pred_Success)) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45)+
+  scale_fill_continuous(name="Pred_Success",
+                        #low="",
+                        #high="darkred",
+                        breaks=seq(min(visual_data$Success,na.rm = TRUE), max(visual_data$Success,na.rm = TRUE)))+
+  theme_minimal() +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank())+
+  labs(title="Predicted Success in Massachusetts")
+)
+```
+
+```{r, echo=FALSE,fig.align="center"}
+Arizona_comparison <- grid.arrange(
+visual_data %>%
+  filter(.,state_name=="Arizona") %>%
+  ggplot(.) + 
+  geom_polygon(mapping = aes(x = long, y = lat, group = group, fill=Success)) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45)+
+  scale_fill_continuous(name="Success",
+                        #low="steelblue",
+                        #high="darkred",
+                        breaks=seq(min(visual_data$Success,na.rm = TRUE), max(visual_data$Success,na.rm = TRUE)))+
+  theme_minimal()+
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank())+
+  labs(title="Real Success in Arizona"),
+
+visual_data %>%
+  filter(.,state_name=="Arizona") %>%
+  ggplot(.) + 
+  geom_polygon(mapping = aes(x = long, y = lat, group = group, fill=Pred_Success)) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45)+
+  scale_fill_continuous(name="Pred_Success",
+                        #low="",
+                        #high="darkred",
+                        breaks=seq(min(visual_data$Success,na.rm = TRUE), max(visual_data$Success,na.rm = TRUE)))+
+  theme_minimal() +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank())+
+  labs(title="Predicted Success in Arizona")
+)
+```
+
+# Appendix 5 Sources
+What Makes Urban Areas Around the World Successful; Benfield, Kaid; The Atlantic, April 2011: https://www.theatlantic.com/international/archive/2011/04/sustainable-cities-what-makes-urban-areas-around-the-world-successful/237668/
+
+6 Examples of What Makes a Great Public Space, PBS Report, March 2016:
+https://www.pps.org/article/you-asked-we-answered-6-examples-of-what-makes-a-great-public-space
+
+How to Quantify a Successful City; Beyer, Scott; Forbes, November 2015
+https://www.forbes.com/sites/scottbeyer/2015/11/08/how-to-quantify-a-successful-city
+
+The New Gilded Age; Sommellier, Estelle and Price, Mark; Economic Policy Institute, July 2018
+https://www.epi.org/publication/the-new-gilded-age-income-inequality-in-the-u-s-by-state-metropolitan-area-and-county/
